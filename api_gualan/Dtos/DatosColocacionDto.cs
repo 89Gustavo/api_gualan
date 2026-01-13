@@ -1,0 +1,71 @@
+﻿namespace api_gualan.Dtos
+{
+    public class DatosColocacionDto
+    {
+        public string? Empresa { get; set; }
+        public string? Cliente { get; set; }
+        public string? NumeroDocumento { get; set; }
+        public string? ArrangementId { get; set; }
+        public string? Categoria { get; set; }
+        public string? TipoDocumento { get; set; }
+        public string? Moneda { get; set; }
+        public string? Producto { get; set; }
+        public string? AreaFinanciera { get; set; }
+        public string? UsuarioAsesor { get; set; }
+        public string? UsuarioCobranza { get; set; }
+        public string? UsuarioEjecutivo { get; set; }
+        public string? RecordStatus { get; set; }
+        public int? DiasMora { get; set; }
+        public decimal? TasaInteres { get; set; }
+        public decimal? MontoDocumento { get; set; }
+        public decimal? SaldoCapital { get; set; }
+        public decimal? CapitalVigente { get; set; }
+        public decimal? CapitalVencido { get; set; }
+        public decimal? InteresesVencidos { get; set; }
+        public decimal? MontoMora { get; set; }
+        public decimal? MontoAdeudado { get; set; }
+        public decimal? InteresesDevengados { get; set; }
+        public int? Plazo { get; set; }
+        public string? TipoGarantia { get; set; }
+        public DateTime? FechaInicio { get; set; }
+        public DateTime? FechaVencimiento { get; set; }
+        public string? FrecuenciaCapital { get; set; }
+        public string? FrecuenciaInteres { get; set; }
+        public string? EstadoDocumento { get; set; }
+        public DateTime? FechaAprobacion { get; set; }
+        public string? CalificacionCredito { get; set; }
+        public string? ClasificacionProyecto { get; set; }
+        public string? OrigenFondos { get; set; }
+        public decimal? ColDisponible { get; set; }
+        public string? ActividadEconomica { get; set; }
+        public decimal? CuotaCapital { get; set; }
+        public string? Referencia { get; set; }
+        public string? LtDepurado { get; set; }
+        public string? Depurado { get; set; }
+        public DateTime? FechaUltimoPago { get; set; }
+        public string? Gender { get; set; }
+        public string? MaritalStatus { get; set; }
+        public string? CuentaDebito { get; set; }
+        public string? CuentaCredito { get; set; }
+        public int? DiasMoraInteres { get; set; }
+        public decimal? MontoGastos { get; set; }
+        public DateTime? FechaUltimoPagoCapital { get; set; }
+        public DateTime? FechaProximoPagoCapital { get; set; }
+        public string? TipoFrecuenciaPago { get; set; }
+        public string? TipoProducto { get; set; }
+        public DateTime? FechaRefinancia { get; set; }
+        public DateTime? FechaReestructura { get; set; }
+        public decimal? MontoDesembolsado { get; set; }
+        public DateTime? Fecha1erDesemb { get; set; }
+        public DateTime? FechaUltDesemb { get; set; }
+        public string? UsuarioCreacionCta { get; set; }
+        public string? CategoriaProducto { get; set; }
+        public string? Grupo { get; set; }
+        public string? NumeroActa { get; set; }
+        public string? Payin { get; set; }
+        public string? Segpromutua { get; set; }
+        public string? Solicitud { get; set; }
+        public string? Guarantor { get; set; }
+        public decimal? TasaMora { get; set; }
+    }
+}

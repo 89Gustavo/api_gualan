@@ -1,0 +1,6 @@
+@api_gualan_HostAddress = http://localhost:5211
+
+GET {{api_gualan_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
