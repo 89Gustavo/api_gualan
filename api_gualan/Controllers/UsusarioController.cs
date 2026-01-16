@@ -1,56 +1,137 @@
-﻿using api_gualan.Helpers;
+﻿using api_gualan.Helpers.Interfaces;
 using api_gualan.Models;
 using Microsoft.AspNetCore.Mvc;
-
+using Microsoft.Extensions.Configuration;
 using MySqlConnector;
+using Microsoft.Data.SqlClient;
+using System.Data.Common;
+
 namespace api_gualan.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class UsusarioController : Controller
+    public class UsuarioController : ControllerBase
     {
+        private readonly IDbHelper _db;
+        private readonly IConfiguration _config;
 
-        private readonly Helpers.MySqlHelper _db;
-
-        public UsusarioController(Helpers.MySqlHelper db)
+        public UsuarioController(IDbHelper db, IConfiguration config)
         {
             _db = db;
+            _config = config;
         }
 
-        // GET api/personas
+        // =====================================================
+        // 🔹 GET api/usuario
+        // =====================================================
         [HttpGet]
         public async Task<IActionResult> Get()
         {
             var data = await _db.ExecuteProcedureJsonAsync("sp_lista_usuarios");
             return Ok(data);
         }
-        // POST api/personas
 
+        // =====================================================
+        // 🔹 POST api/usuario/crear
+        // =====================================================
         [HttpPost("crear")]
-        public async Task<IActionResult> CrearPersona([FromBody] Usuario_model usuario)
+        public async Task<IActionResult> CrearUsuario([FromBody] Usuario_model usuario)
         {
             try
             {
-                // Crear parámetros para el procedimiento
-                var parameters = new MySqlConnector.MySqlParameter[]
+                var tipoConexion = _config["TipoConexion"];
+                DbParameter[] parameters;
+
+                // =====================================================
+                // 🔹 MySQL
+                // =====================================================
+                if (tipoConexion == "MySql")
+                {
+                    parameters = new MySqlParameter[]
                     {
-                        new MySqlConnector.MySqlParameter("@p_codigoUsuario", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.codigoUsuario},
-                        new MySqlConnector.MySqlParameter("@p_codiogoPersona", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.codigoPersona},
-                        new MySqlConnector.MySqlParameter("@p_codigoRol", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.codigoRol},
-                        new MySqlConnector.MySqlParameter("@p_nombreUsuario", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.nombreUsuario},
-                        new MySqlConnector.MySqlParameter("@p_claveUsuario", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.claveUsuario},
-                        new MySqlConnector.MySqlParameter("@USUARIO_BITACORA", MySqlConnector.MySqlDbType.VarChar) { Value = usuario.UsuarioBitacora }
-
+                        new MySqlParameter("@p_codigoUsuario", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoUsuario
+                        },
+                        new MySqlParameter("@p_codiogoPersona", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoPersona
+                        },
+                        new MySqlParameter("@p_codigoRol", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoRol
+                        },
+                        new MySqlParameter("@p_nombreUsuario", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.nombreUsuario
+                        },
+                        new MySqlParameter("@p_claveUsuario", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.claveUsuario
+                        },
+                        new MySqlParameter("@USUARIO_BITACORA", MySqlDbType.VarChar)
+                        {
+                            Value = usuario.UsuarioBitacora
+                        }
                     };
+                }
+                // =====================================================
+                // 🔹 SQL SERVER
+                // =====================================================
+                else if (tipoConexion == "SqlServer")
+                {
+                    parameters = new SqlParameter[]
+                    {
+                        new SqlParameter("@p_codigoUsuario", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoUsuario
+                        },
+                        new SqlParameter("@p_codiogoPersona", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoPersona
+                        },
+                        new SqlParameter("@p_codigoRol", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.codigoRol
+                        },
+                        new SqlParameter("@p_nombreUsuario", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.nombreUsuario
+                        },
+                        new SqlParameter("@p_claveUsuario", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.claveUsuario
+                        },
+                        new SqlParameter("@USUARIO_BITACORA", System.Data.SqlDbType.VarChar)
+                        {
+                            Value = usuario.UsuarioBitacora
+                        }
+                    };
+                }
+                else
+                {
+                    return StatusCode(500, "TipoConexion no soportado");
+                }
 
-                // Ejecutar procedimiento
-                int filasAfectadas = await _db.ExecuteProcedureNonQueryAsync("sp_InsertUpdate_usuarios", parameters);
+                int filasAfectadas = await _db.ExecuteProcedureNonQueryAsync(
+                    "sp_InsertUpdate_usuarios",
+                    parameters
+                );
 
-                return Ok(new { message = "Usuario creada correctamente", filasAfectadas });
+                return Ok(new
+                {
+                    success = true,
+                    message = "Usuario creado correctamente",
+                    filasAfectadas
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
+                return StatusCode(500, new
+                {
+                    success = false,
+                    error = ex.Message
+                });
             }
         }
     }

@@ -1,8 +1,7 @@
 ﻿using api_gualan.Dtos;
-
-using api_gualan.Helpers;
+using api_gualan.Helpers.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using MySqlConnector;
+using System.Data.Common;
 
 namespace api_gualan.Controllers
 {
@@ -10,9 +9,9 @@ namespace api_gualan.Controllers
     [Route("api/menu")]
     public class MenuController : ControllerBase
     {
-        private readonly Helpers.MySqlHelper _db;
+        private readonly IDbHelper _db;
 
-        public MenuController(Helpers.MySqlHelper db)
+        public MenuController(IDbHelper db)
         {
             _db = db;
         }
@@ -25,12 +24,9 @@ namespace api_gualan.Controllers
         {
             try
             {
-                var parameters = new MySqlParameter[]
+                DbParameter[] parameters =
                 {
-                    new MySqlParameter("@p_codigoRol", MySqlDbType.Int32)
-                    {
-                        Value = codigoRol
-                    }
+                    _db.CreateParameter("@p_codigoRol", codigoRol)
                 };
 
                 var data = await _db.ExecuteProcedureJsonAsync(
@@ -42,8 +38,8 @@ namespace api_gualan.Controllers
                 {
                     codigoMenu = Convert.ToInt32(row["codigoMenu"]),
                     padre = Convert.ToInt32(row["padre"]),
-                    texto = row["texto"].ToString(),
-                    href = row["href"].ToString()
+                    texto = row["texto"]?.ToString(),
+                    href = row["href"]?.ToString()
                 }).ToList();
 
                 return Ok(result);

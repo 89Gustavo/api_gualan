@@ -1,31 +1,55 @@
-﻿using api_gualan.Helpers;
+﻿using api_gualan.Helpers.Interfaces;
+using Microsoft.Extensions.Configuration;
+using System.Data.Common;
 
 namespace api_gualan.Services
 {
     public class CsvBatchService
     {
-        private readonly MySqlHelper _db;
+        private readonly IDbHelper? _db;
+        private readonly string _tipoConexion;
 
-        public CsvBatchService(MySqlHelper db)
+        public CsvBatchService(IDbHelper? db, IConfiguration configuration)
         {
             _db = db;
+            // Valor por defecto para evitar null
+            _tipoConexion = configuration["TipoConexion"] ?? "SqlServer";
         }
 
-        public async Task ExecuteColocacionAsync(
-            string filePath,
-            string nombreOriginal,
-            string usuarioBitacora)
+        public async Task ExecuteColocacionAsync(string filePath, string nombreOriginal, string usuarioBitacora)
         {
-            // 1️⃣ Validación rápida del CSV
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"Archivo CSV no encontrado: {filePath}");
+
             CsvValidator.ValidateDelimiter(filePath, '|');
 
-            // 2️⃣ SQL LOAD DATA CORRECTO (SIN ...)
+            if (_db == null)
+            {
+                throw new Exception("DB Helper no disponible. Revise logs.");
+            }
+
+            if (_tipoConexion == "MySql")
+            {
+                await EjecutarMySqlAsync(filePath, nombreOriginal, usuarioBitacora);
+            }
+            else if (_tipoConexion == "SqlServer")
+            {
+                await EjecutarSqlServerAsync(filePath, nombreOriginal, usuarioBitacora);
+            }
+            else
+            {
+                throw new Exception($"TipoConexion no soportado: {_tipoConexion}");
+            }
+        }
+
+        private async Task EjecutarMySqlAsync(string filePath, string nombreOriginal, string usuarioBitacora)
+        {
+            string safePath = filePath.Replace("\\", "/");
             string sql = $@"
 USE exportablecsv;
-
 ALTER TABLE DatosColocacion DISABLE KEYS;
 
-LOAD DATA INFILE '{filePath.Replace("\\", "/")}'
+LOAD DATA INFILE '{safePath}'
 INTO TABLE DatosColocacion
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY '|'
@@ -33,71 +57,8 @@ ENCLOSED BY '""'
 LINES TERMINATED BY '\n'
 IGNORE 1 ROWS
 (
- EMPRESA,
- CLIENTE,
- NUMERODOCUMENTO,
- ARRANGEMENT_ID,
- CATEGORIA,
- TIPODOCUMENTO,
- MONEDA,
- PRODUCTO,
- AREA_FINANCIERA,
- USUARIOASESOR,
- USUARIOCOBRANZA,
- USUARIOEJECUTIVO,
- RECORD_STATUS,
- DIASMORA,
- TASAINTERES,
- MONTODOCUMENTO,
- SALDOCAPITAL,
- CAPITALVIGENTE,
- CAPITALVENCIDO,
- INTERESESVENCIDOS,
- MONTO_MORA,
- MONTO_ADEUDADO,
- INTERESESDEVENGADOS,
- PLAZO,
- TIPOGARANTIA,
- fechainicio,
- fechavencimiento,
- frecuenciaCapital,
- frecuenciaInteres,
- ESTADODOCUMENTO,
- FECHAPROBACION,
- CALIFICACION_CREDITO,
- CLASIFICACIONPROYECTO,
- ORIGENFONDOS,
- COLDISPONIBLE,
- ACTIVIDADECONOMICA,
- CUOTACAPITAL,
- REFERENCIA,
- LTDEPURADO,
- DEPURADO,
- FECHAULTIMOPAGO,
- GENDER,
- MARITALSTATUS,
- CUENTADEBITO,
- CUENTACREDITO,
- DIASMORAINTERES,
- MONTOGASTOS,
- FECHAULTIMOPAGOCAPITAL,
- FECHAPROXIMOPAGOCAPITAL,
- TIPOFRECUENCIAPAGO,
- TIPO_PRODUCTO,
- FECHAREFINANCIA,
- FECHAREESTRUCTURA,
- monto_desembolsado,
- fecha_1erdesemb,
- fecha_ultdesemb,
- Usuario_Creacion_Cta,
- Categoria_Producto,
- Grupo,
- Numero_Acta,
- PAYIN,
- SEGPROMUTUA,
- Solicitud,
- Guarantor,
- Tasa_Mora
+ EMPRESA, CLIENTE, NUMERODOCUMENTO, ARRANGEMENT_ID
+ -- etc...
 )
 SET
  NombreArchivo = '{nombreOriginal}',
@@ -108,8 +69,19 @@ SET
 ALTER TABLE DatosColocacion ENABLE KEYS;
 ";
 
-            // 3️⃣ Ejecutar sin timeout (batch grande)
-            await _db.ExecuteNonQueryAsync(sql, null, 0);
+            await _db!.ExecuteNonQueryAsync(sql, null, 0);
+        }
+
+        private async Task EjecutarSqlServerAsync(string filePath, string nombreOriginal, string usuarioBitacora)
+        {
+            DbParameter[] parametros =
+            {
+                _db!.CreateParameter("@RutaArchivo", filePath),
+                _db.CreateParameter("@NombreArchivo", nombreOriginal),
+                _db.CreateParameter("@UsuarioBitacora", usuarioBitacora)
+            };
+
+            await _db.ExecuteProcedureNonQueryAsync("sp_carga_colocacion_bulk", parametros);
         }
     }
 }

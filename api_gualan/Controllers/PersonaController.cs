@@ -1,25 +1,24 @@
-﻿using api_gualan.Helpers;
+﻿using api_gualan.Helpers.Interfaces;
 using api_gualan.Models;
 using Microsoft.AspNetCore.Mvc;
-
-using MySqlConnector;
-
+using System.Data;
 
 namespace api_gualan.Controllers
 {
-
     [ApiController]
     [Route("api/[controller]")]
-    public class PersonaController : Controller
+    public class PersonaController : ControllerBase
     {
-        private readonly Helpers.MySqlHelper _db;
+        private readonly IDbHelper _db;
 
-        public PersonaController(Helpers.MySqlHelper db)
+        public PersonaController(IDbHelper db)
         {
             _db = db;
         }
 
-        // GET api/personas
+        // =====================================================
+        // GET api/persona
+        // =====================================================
         [HttpGet]
         public async Task<IActionResult> Get()
         {
@@ -27,39 +26,47 @@ namespace api_gualan.Controllers
             return Ok(data);
         }
 
-        // POST api/personas
- 
+        // =====================================================
+        // POST api/persona/crear
+        // =====================================================
         [HttpPost("crear")]
         public async Task<IActionResult> CrearPersona([FromBody] Persona_model persona)
         {
             try
             {
-                // Crear parámetros para el procedimiento
-                var parameters = new MySqlConnector.MySqlParameter[]
-                    {
-                        new MySqlConnector.MySqlParameter("@p_primerNombre", MySqlConnector.MySqlDbType.VarChar) { Value = persona.primerNombre},
-                        new MySqlConnector.MySqlParameter("@p_segundoNombre", MySqlConnector.MySqlDbType.VarChar) { Value = persona.segundoNombre},
-                        new MySqlConnector.MySqlParameter("@p_tercerNombre", MySqlConnector.MySqlDbType.VarChar) { Value = persona.tercerNombre},
-                        new MySqlConnector.MySqlParameter("@p_primerApellido", MySqlConnector.MySqlDbType.VarChar) { Value = persona.primerApellido},
-                        new MySqlConnector.MySqlParameter("@p_segundoApellido", MySqlConnector.MySqlDbType.VarChar) { Value = persona.segundoApellido},
-                        new MySqlConnector.MySqlParameter("@p_apellidoCasada", MySqlConnector.MySqlDbType.VarChar) { Value = persona.apellidoCasada},                        
-                        new MySqlConnector.MySqlParameter("@p_dpi", MySqlConnector.MySqlDbType.VarChar) { Value = persona.dpi },
-                        new MySqlConnector.MySqlParameter("@p_fechaNacimiento", MySqlConnector.MySqlDbType.VarChar) { Value = persona.fechaNacimiento },
-                        new MySqlConnector.MySqlParameter("@p_edad", MySqlConnector.MySqlDbType.VarChar) { Value = persona.edad },
-                        new MySqlConnector.MySqlParameter("@USUARIO_BITACORA", MySqlConnector.MySqlDbType.VarChar) { Value = persona.UsuarioBitacora },
+                var parameters = new[]
+                {
+                    _db.CreateParameter("@p_primerNombre", persona.primerNombre, DbType.String),
+                    _db.CreateParameter("@p_segundoNombre", persona.segundoNombre, DbType.String),
+                    _db.CreateParameter("@p_tercerNombre", persona.tercerNombre, DbType.String),
+                    _db.CreateParameter("@p_primerApellido", persona.primerApellido, DbType.String),
+                    _db.CreateParameter("@p_segundoApellido", persona.segundoApellido, DbType.String),
+                    _db.CreateParameter("@p_apellidoCasada", persona.apellidoCasada, DbType.String),
+                    _db.CreateParameter("@p_dpi", persona.dpi, DbType.String),
+                    _db.CreateParameter("@p_fechaNacimiento", persona.fechaNacimiento, DbType.String),//formato 1990-05-12
+                    _db.CreateParameter("@p_edad", persona.edad, DbType.Int32),
+                    _db.CreateParameter("@USUARIO_BITACORA", persona.UsuarioBitacora, DbType.String)
+                };
 
-                    };
+                int filasAfectadas =
+                    await _db.ExecuteProcedureNonQueryAsync(
+                        "sp_InsertUpdate_personas",
+                        parameters
+                    );
 
-                // Ejecutar procedimiento
-                int filasAfectadas = await _db.ExecuteProcedureNonQueryAsync("sp_InsertUpdate_personas", parameters);
-
-                return Ok(new { message = "Persona creada correctamente", filasAfectadas });
+                return Ok(new
+                {
+                    message = "Persona creada correctamente",
+                    filasAfectadas
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
+                return StatusCode(500, new
+                {
+                    error = ex.Message
+                });
             }
         }
     }
-
 }

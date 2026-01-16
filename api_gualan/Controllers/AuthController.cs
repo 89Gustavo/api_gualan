@@ -1,10 +1,7 @@
-﻿using api_gualan.Helpers;
-using api_gualan.Models;
-using Microsoft.AspNetCore.Mvc;
-
-using MySqlConnector;
+﻿using api_gualan.Helpers.Interfaces;
 using api_gualan.Dtos;
-
+using Microsoft.AspNetCore.Mvc;
+using System.Data.Common;
 
 namespace api_gualan.Controllers
 {
@@ -12,9 +9,9 @@ namespace api_gualan.Controllers
     [Route("api/auth")]
     public class AuthController : ControllerBase
     {
-        private readonly Helpers.MySqlHelper _db;
+        private readonly IDbHelper _db;
 
-        public AuthController(Helpers.MySqlHelper db)
+        public AuthController(IDbHelper db)
         {
             _db = db;
         }
@@ -24,15 +21,19 @@ namespace api_gualan.Controllers
         {
             try
             {
-                var parameters = new MySqlConnector.MySqlParameter[]
+                DbParameter[] parameters =
                 {
-                     new MySqlConnector.MySqlParameter("@p_nombreUsuario", MySqlConnector.MySqlDbType.VarChar) { Value = request.nombreUsuario},
-                     new MySqlConnector.MySqlParameter("@p_clave", MySqlConnector.MySqlDbType.VarChar) { Value = request.claveUsuario},
+                    _db.CreateParameter("@p_nombreUsuario", request.nombreUsuario),
+                    _db.CreateParameter("@p_clave", request.claveUsuario)
                 };
 
-                var result = await _db.ExecuteProcedureJsonAsync("sp_login_usuario",parameters);
+                var result = await _db.ExecuteProcedureJsonAsync(
+                    "sp_login_usuario",
+                    parameters
+                );
 
-                if (result.Count == 0 || Convert.ToBoolean(result[0]["success"]) == false)
+                if (result.Count == 0 ||
+                    !Convert.ToBoolean(result[0]["success"]))
                 {
                     return Ok(new LoginResponseDto
                     {
