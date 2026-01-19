@@ -1077,15 +1077,8 @@ namespace api_gualan.Controllers
                         rutaLimpia: rutaLimpia
                     );
 
-                    var resultadoLimpieza = Helpers.LimpiarCsvColumnasSql.Ejecutar(
-                        rutaOriginal,
-                        rutaLimpia
-                    );
-                    //LimpiarCsvColumnasSql.Ejecutar(
-                    //    @"C:\cargas_sql\2026-01-17_211615_DatosClientes.csv",
-                    //    @"C:\cargas_sql\LIMPIO_2026-01-17_211615_DatosClientes.csv"
-                    //);
-                    string rutaCsvSql = resultadoLimpieza.archivoSalida.Replace("\\", "/");
+                   
+                    string rutaCsvSql = rutaLimpia.Replace("\\", "/");
 
                     // 2️⃣ PARAMETROS PARA EL SP
                     DbParameter[] parameters =
