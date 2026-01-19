@@ -1,8 +1,10 @@
 ﻿using api_gualan.Helpers;
+using api_gualan.Helpers.Interfaces;
 using api_gualan.Services;
 using Microsoft.AspNetCore.Mvc;
 using MySqlConnector;
 using System.Data;
+using System.Data.Common;
 using System.Diagnostics;
 
 
@@ -12,11 +14,23 @@ namespace api_gualan.Controllers
     [Route("api/csv")]
     public class CargaCsvController : ControllerBase
     {
-        private readonly Helpers.MySqlHelper _db;
+        //private readonly Helpers.MySqlHelper _db;
+        private readonly IDbHelper _db;
+        private readonly IConfiguration _config;
 
-        public CargaCsvController(Helpers.MySqlHelper db)
+
+        //public CargaCsvController(Helpers.MySqlHelper db, IConfiguration config)
+       public CargaCsvController(IDbHelper db, IConfiguration config)
         {
             _db = db;
+            _config = config;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Get()
+        {
+            
+            return Ok(_config["TipoConexion"]);
         }
 
         #region Captacion - fila por fila
@@ -596,55 +610,43 @@ namespace api_gualan.Controllers
         #region Clientes - carga masiva rápida usando SourceStream
         [ApiExplorerSettings(IgnoreApi = true)]
         [HttpPost("cargarClientesMasivo")]
-        public async Task<IActionResult> CargarClientesMasivo(
-            IFormFile archivo,
-            [FromQuery] string usuarioBitacora)
+        public async Task<IActionResult> CargarClientesMasivo(IFormFile archivo,[FromQuery] string usuarioBitacora)
         {
             var stopwatch = Stopwatch.StartNew();
-
-            try
+            if (_config["TipoConexion"] == "MySql")
             {
-                if (archivo == null || archivo.Length == 0)
-                    return BadRequest("Archivo inválido");
-
-                string uploadPath = @"C:\ProgramData\MySQL\MySQL Server 8.0\Uploads";
-
-                if (!Directory.Exists(uploadPath))
-                    Directory.CreateDirectory(uploadPath);
-
-                string nombreOriginal = archivo.FileName;
-                long pesoBytes = archivo.Length;
-                double pesoMb = Math.Round(pesoBytes / (1024.0 * 1024.0), 2);
-
-                string nombreArchivo =
-                    $"{DateTime.Now:yyyy-MM-dd_HHmmss}_DatosClientes.csv";
-
-                string rutaCompleta = Path.Combine(uploadPath, nombreArchivo);
-
-                // 1️⃣ Guardar archivo
-                using (var stream = new FileStream(rutaCompleta, FileMode.Create))
+                try
                 {
-                    await archivo.CopyToAsync(stream);
-                }
-                //string rutaCsvLimpio = Path.Combine(
-                //        uploadPath,
-                //        $"LIMPIO_{nombreArchivo}"
-                //    );
 
-                //LimpiarCsvColumnas.Ejecutar(
-                //    rutaOriginal: rutaCompleta,
-                //    rutaLimpia: rutaCsvLimpio
-                //);
+                    if (archivo == null || archivo.Length == 0)
+                        return BadRequest("Archivo inválido");
 
-                // Usar el CSV limpio de ahora en adelante
-               // rutaCompleta = rutaCsvLimpio;
-                // 2️⃣ SQL BATCH
-                string sql = $@"
-        USE exportablecsv;
+                    string uploadPath = @"C:\ProgramData\MySQL\MySQL Server 8.0\Uploads";
 
-        ALTER TABLE datosClientes DISABLE KEYS;
+                    if (!Directory.Exists(uploadPath))
+                        Directory.CreateDirectory(uploadPath);
 
-        LOAD DATA INFILE '{rutaCompleta.Replace("\\", "/")}'
+                    string nombreOriginal = archivo.FileName;
+                    long pesoBytes = archivo.Length;
+                    double pesoMb = Math.Round(pesoBytes / (1024.0 * 1024.0), 2);
+
+                    string nombreArchivo =
+                        $"{DateTime.Now:yyyy-MM-dd_HHmmss}_DatosClientes.csv";
+
+                    string rutaCompleta = Path.Combine(uploadPath, nombreArchivo);
+
+                    // 1️⃣ Guardar archivo
+                    using (var stream = new FileStream(rutaCompleta, FileMode.Create))
+                    {
+                        await archivo.CopyToAsync(stream);
+                    }
+
+                    string sql = $@"
+                USE exportablecsv;
+
+                ALTER TABLE datosClientes DISABLE KEYS;
+
+                LOAD DATA INFILE '{rutaCompleta.Replace("\\", "/")}'
                     INTO TABLE datosClientes
                     CHARACTER SET latin1
                     FIELDS TERMINATED BY '|'
@@ -783,35 +785,46 @@ namespace api_gualan.Controllers
 
 
 
-        ALTER TABLE datosClientes ENABLE KEYS;
-        ";
+                ALTER TABLE datosClientes ENABLE KEYS;
+                ";
 
-                await _db.ExecuteNonQueryAsync(sql);
+                    await _db.ExecuteNonQueryAsync(sql);
 
-                stopwatch.Stop();
+                    stopwatch.Stop();
 
-                return Ok(new
+                    return Ok(new
+                    {
+                        success = true,
+                        archivo = nombreOriginal,
+                        tipoCarga = "BATCH",
+                        tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
+                        peso = $"{pesoMb} mb",
+                        mensaje = "Carga masiva de clientes ejecutada correctamente"
+                    });
+                }
+                catch (Exception ex)
                 {
-                    success = true,
-                    archivo = nombreOriginal,
-                    tipoCarga = "BATCH",
-                    tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
-                    peso = $"{pesoMb} mb",
-                    mensaje = "Carga masiva de clientes ejecutada correctamente"
-                });
+                    stopwatch.Stop();
+
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        error = ex.Message,
+                        detalle = ex.InnerException?.Message,
+                        tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2)
+                    });
+                }
+
             }
-            catch (Exception ex)
+            else if (_config["TipoConexion"] == "SqlServer")
             {
-                stopwatch.Stop();
 
-                return StatusCode(500, new
-                {
-                    success = false,
-                    error = ex.Message,
-                    detalle = ex.InnerException?.Message,
-                    tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2)
-                });
+                return Ok(_config["TipoConexion"]);
             }
+            else {
+                return Ok("conexion no conectado");
+            }
+
         }
 
         #endregion
@@ -822,211 +835,308 @@ namespace api_gualan.Controllers
         [HttpPost("cargarClientesMasivoLimpio")]
         public async Task<IActionResult> CargarClientesMasivoLimpio(IFormFile archivo,[FromQuery] string usuarioBitacora)
         {
+            if (archivo == null || archivo.Length == 0)
+                return BadRequest("Archivo inválido");
             var stopwatch = Stopwatch.StartNew();
 
-            try
+            if (_config["TipoConexion"] == "MySql")
             {
-                if (archivo == null || archivo.Length == 0)
-                    return BadRequest("Archivo inválido");
-
-                string uploadPath = @"C:\ProgramData\MySQL\MySQL Server 8.0\Uploads";
-                Directory.CreateDirectory(uploadPath);
-
-                string nombreArchivo = $"{DateTime.Now:yyyy-MM-dd_HHmmss}_DatosClientes.csv";
-                string rutaOriginal = Path.Combine(uploadPath, nombreArchivo);
-                string rutaLimpia = Path.Combine(uploadPath, $"LIMPIO_{nombreArchivo}");
-
-                string nombreOriginal = archivo.FileName;
-               
-                long pesoBytes = archivo.Length;
-                double pesoMb = Math.Round(pesoBytes / (1024.0 * 1024.0), 2);
-
-                // 1️⃣ Guardar CSV original
-                using (var stream = new FileStream(rutaOriginal, FileMode.Create))
+                try
                 {
-                    await archivo.CopyToAsync(stream);
+                   
+
+                    string uploadPath = @"C:\ProgramData\MySQL\MySQL Server 8.0\Uploads";
+                    Directory.CreateDirectory(uploadPath);
+
+                    string nombreArchivo = $"{DateTime.Now:yyyy-MM-dd_HHmmss}_DatosClientes.csv";
+                    string rutaOriginal = Path.Combine(uploadPath, nombreArchivo);
+                    string rutaLimpia = Path.Combine(uploadPath, $"LIMPIO_{nombreArchivo}");
+
+                    string nombreOriginal = archivo.FileName;
+
+                    long pesoBytes = archivo.Length;
+                    double pesoMb = Math.Round(pesoBytes / (1024.0 * 1024.0), 2);
+
+                    // 1️⃣ Guardar CSV original
+                    using (var stream = new FileStream(rutaOriginal, FileMode.Create))
+                    {
+                        await archivo.CopyToAsync(stream);
+                    }
+
+                    // 2️⃣ LIMPIAR CSV
+                    Helpers.LimpiarCsvColumnas.Ejecutar(
+                        rutaOriginal: rutaOriginal,
+                        rutaLimpia: rutaLimpia
+                    );
+
+                    // 3️⃣ USAR CSV LIMPIO
+                    string rutaMysql = rutaLimpia.Replace("\\", "/");
+
+                    string sql = $@"
+                    USE exportablecsv;
+
+                    ALTER TABLE datosClientes DISABLE KEYS;
+
+                    LOAD DATA INFILE '{rutaMysql}'
+                    INTO TABLE datosClientes
+                    CHARACTER SET latin1
+                    FIELDS TERMINATED BY '|'
+                    LINES TERMINATED BY '\n'
+                    IGNORE 1 LINES
+                    (
+                        @CodigoCliente,@Actualizacion,@Nombre1,@Nombre2,@Nombre3,@Apellido1,@Apellido2,@ApellidoCasada,
+                        @Celular,@Telefono,@Genero,@FechaApertura,@TipoCliente,@FechaNacimiento,@ActividadEconomicaIVE,@AltoRiesgo,
+                        @IdReple,@Dpi,@Pasaporte,@Licencia,@Nit,@Departamento,@Municipio,@Pais,@EstadoCivil,@DeptoNacimiento,
+                        @MuniNacimiento,@PaisNacimiento,@Nacionalidad,@Ocupacion,@Profesion,@CorreoElectronico,@ActividadEconomica,
+                        @Rubro,@SubRubro,@Direccion,@ZonaDomicilio,@PaisDomicilio,@DeptoDomicilio,@MuniDomicilio,@RelacionDependencia,
+                        @NombreRelacionDependencia,@IngresosLaborales,@MonedaIngresoLaboral,@FechaIngresoLaboral,@NegocioPropio,
+                        @NombreNegocio,@FechaInicioNegocio,@IngresosNegocioPropio,@MonedaNegocioPropio,@IngresosRemesas,
+                        @MontoOtrosIngresos,@OtrosIngresos,@MontoIngresos,@MonedaIngresos,@RangoIngresos,@MontoEgresos,@MonedaEgresos,
+                        @RangoEgresos,@ActEconomicaRelacionDependencia,@ActEconomicaNegocio,@Edad,@Cooperativa,@CondicionVivienda,
+                        @Puesto,@DireccionLaboral,@ZonaLaboral,@DeptoLaboral,@MuniLaboral,@TelefonoLaboral,@PersonaPEP,@PersonaCPE,
+                        @Categoria,@DescripcionSubRubro,@DescripcionRubro,@CoopeCreacion,@parentesco_pep,@relacion_pep,
+                        @codigo_cli_encargado,@ActEconRedep,@ActEconNego,@Depto_Domi,@Muni_Domi,
+                        @OTR_ING_ACTPROF,@OTR_ING_ACTPROF_DES,@OTR_ING_MANU,@OTR_ING_MANU_DES,
+                        @OTR_ING_RENTAS,@OTR_ING_RENTAS_DES,@OTR_ING_JUBILA,@OTR_ING_JUBILA_DES,
+                        @OTR_ING_OTRFUE,@OTR_ING_OTRFUE_DES,@CampoSector,@dir_neg_propio,@zona_neg_propio,
+                        @pais_neg_propio,@depto_neg_propio,@ciudad_neg_propio,@fecha_expdpi,@fecha_emidpi,
+                        @UsuarioActualizacion,@CooperativaActualizacion,@IdRepresentante,@NombreRepresentante,
+                        @RelacionRepresentante,@CanalCliente
+                    )
+                    SET
+                       CodigoCliente = NULLIF(NULLIF(TRIM(@CodigoCliente),''),'NULL'),
+                        Actualizacion = NULLIF(NULLIF(TRIM(@Actualizacion),''),'NULL'),
+                        Nombre1 = NULLIF(NULLIF(TRIM(@Nombre1),''),'NULL'),
+                        Nombre2 = NULLIF(NULLIF(TRIM(@Nombre2),''),'NULL'),
+                        Nombre3 = NULLIF(NULLIF(TRIM(@Nombre3),''),'NULL'),
+                        Apellido1 = NULLIF(NULLIF(TRIM(@Apellido1),''),'NULL'),
+                        Apellido2 = NULLIF(NULLIF(TRIM(@Apellido2),''),'NULL'),
+                        ApellidoCasada = NULLIF(NULLIF(TRIM(@ApellidoCasada),''),'NULL'),
+                        Celular = NULLIF(NULLIF(TRIM(@Celular),''),'NULL'),
+                        Telefono = NULLIF(NULLIF(TRIM(@Telefono),''),'NULL'),
+                        Genero = NULLIF(NULLIF(TRIM(@Genero),''),'NULL'),
+                        FechaApertura = NULLIF(NULLIF(TRIM(@FechaApertura),''),'NULL'),
+                        TipoCliente = NULLIF(NULLIF(TRIM(@TipoCliente),''),'NULL'),
+                        FechaNacimiento = NULLIF(NULLIF(TRIM(@FechaNacimiento),''),'NULL'),
+                        ActividadEconomicaIVE = NULLIF(NULLIF(TRIM(@ActividadEconomicaIVE),''),'NULL'),
+                        AltoRiesgo = NULLIF(NULLIF(TRIM(@AltoRiesgo),''),'NULL'),
+                        IdReple = NULLIF(NULLIF(TRIM(@IdReple),''),'NULL'),
+                        Dpi = NULLIF(NULLIF(TRIM(@Dpi),''),'NULL'),
+                        Pasaporte = NULLIF(NULLIF(TRIM(@Pasaporte),''),'NULL'),
+                        Licencia = NULLIF(NULLIF(TRIM(@Licencia),''),'NULL'),
+                        Nit = NULLIF(NULLIF(TRIM(@Nit),''),'NULL'),
+                        Departamento = NULLIF(NULLIF(TRIM(@Departamento),''),'NULL'),
+                        Municipio = NULLIF(NULLIF(TRIM(@Municipio),''),'NULL'),
+                        Pais = NULLIF(NULLIF(TRIM(@Pais),''),'NULL'),
+                        EstadoCivil = NULLIF(NULLIF(TRIM(@EstadoCivil),''),'NULL'),
+                        DeptoNacimiento = NULLIF(NULLIF(TRIM(@DeptoNacimiento),''),'NULL'),
+                        MuniNacimiento = NULLIF(NULLIF(TRIM(@MuniNacimiento),''),'NULL'),
+                        PaisNacimiento = NULLIF(NULLIF(TRIM(@PaisNacimiento),''),'NULL'),
+                        Nacionalidad = NULLIF(NULLIF(TRIM(@Nacionalidad),''),'NULL'),
+                        Ocupacion = NULLIF(NULLIF(TRIM(@Ocupacion),''),'NULL'),
+                        Profesion = NULLIF(NULLIF(TRIM(@Profesion),''),'NULL'),
+                        CorreoElectronico = NULLIF(NULLIF(TRIM(@CorreoElectronico),''),'NULL'),
+                        ActividadEconomica = NULLIF(NULLIF(TRIM(@ActividadEconomica),''),'NULL'),
+                        Rubro = NULLIF(NULLIF(TRIM(@Rubro),''),'NULL'),
+                        SubRubro = NULLIF(NULLIF(TRIM(@SubRubro),''),'NULL'),
+                        Direccion = NULLIF(NULLIF(TRIM(@Direccion),''),'NULL'),
+                        ZonaDomicilio = NULLIF(NULLIF(TRIM(@ZonaDomicilio),''),'NULL'),
+                        PaisDomicilio = NULLIF(NULLIF(TRIM(@PaisDomicilio),''),'NULL'),
+                        DeptoDomicilio = NULLIF(NULLIF(TRIM(@DeptoDomicilio),''),'NULL'),
+                        MuniDomicilio = NULLIF(NULLIF(TRIM(@MuniDomicilio),''),'NULL'),
+                        RelacionDependencia = NULLIF(NULLIF(TRIM(@RelacionDependencia),''),'NULL'),
+                        NombreRelacionDependencia = NULLIF(NULLIF(TRIM(@NombreRelacionDependencia),''),'NULL'),
+                        IngresosLaborales = NULLIF(NULLIF(TRIM(@IngresosLaborales),''),'NULL'),
+                        MonedaIngresoLaboral = NULLIF(NULLIF(TRIM(@MonedaIngresoLaboral),''),'NULL'),
+                        FechaIngresoLaboral = NULLIF(NULLIF(TRIM(@FechaIngresoLaboral),''),'NULL'),
+                        NegocioPropio = NULLIF(NULLIF(TRIM(@NegocioPropio),''),'NULL'),
+                        NombreNegocio = NULLIF(NULLIF(TRIM(@NombreNegocio),''),'NULL'),
+                        FechaInicioNegocio = NULLIF(NULLIF(TRIM(@FechaInicioNegocio),''),'NULL'),
+                        IngresosNegocioPropio = NULLIF(NULLIF(TRIM(@IngresosNegocioPropio),''),'NULL'),
+                        MonedaNegocioPropio = NULLIF(NULLIF(TRIM(@MonedaNegocioPropio),''),'NULL'),
+                        IngresosRemesas = NULLIF(NULLIF(TRIM(@IngresosRemesas),''),'NULL'),
+                        MontoOtrosIngresos = NULLIF(NULLIF(TRIM(@MontoOtrosIngresos),''),'NULL'),
+                        OtrosIngresos = NULLIF(NULLIF(TRIM(@OtrosIngresos),''),'NULL'),
+                        MontoIngresos = NULLIF(NULLIF(TRIM(@MontoIngresos),''),'NULL'),
+                        MonedaIngresos = NULLIF(NULLIF(TRIM(@MonedaIngresos),''),'NULL'),
+                        RangoIngresos = NULLIF(NULLIF(TRIM(@RangoIngresos),''),'NULL'),
+                        MontoEgresos = NULLIF(NULLIF(TRIM(@MontoEgresos),''),'NULL'),
+                        MonedaEgresos = NULLIF(NULLIF(TRIM(@MonedaEgresos),''),'NULL'),
+                        RangoEgresos = NULLIF(NULLIF(TRIM(@RangoEgresos),''),'NULL'),
+                        ActEconomicaRelacionDependencia = NULLIF(NULLIF(TRIM(@ActEconomicaRelacionDependencia),''),'NULL'),
+                        ActEconomicaNegocio = NULLIF(NULLIF(TRIM(@ActEconomicaNegocio),''),'NULL'),
+                        Edad = NULLIF(NULLIF(TRIM(@Edad),''),'NULL'),
+                        Cooperativa = NULLIF(NULLIF(TRIM(@Cooperativa),''),'NULL'),
+                        CondicionVivienda = NULLIF(NULLIF(TRIM(@CondicionVivienda),''),'NULL'),
+                        Puesto = NULLIF(NULLIF(TRIM(@Puesto),''),'NULL'),
+                        DireccionLaboral = NULLIF(NULLIF(TRIM(@DireccionLaboral),''),'NULL'),
+                        ZonaLaboral = NULLIF(NULLIF(TRIM(@ZonaLaboral),''),'NULL'),
+                        DeptoLaboral = NULLIF(NULLIF(TRIM(@DeptoLaboral),''),'NULL'),
+                        MuniLaboral = NULLIF(NULLIF(TRIM(@MuniLaboral),''),'NULL'),
+                        TelefonoLaboral = NULLIF(NULLIF(TRIM(@TelefonoLaboral),''),'NULL'),
+                        PersonaPEP = NULLIF(NULLIF(TRIM(@PersonaPEP),''),'NULL'),
+                        PersonaCPE = NULLIF(NULLIF(TRIM(@PersonaCPE),''),'NULL'),
+                        Categoria = NULLIF(NULLIF(TRIM(@Categoria),''),'NULL'),
+                        DescripcionSubRubro = NULLIF(NULLIF(TRIM(@DescripcionSubRubro),''),'NULL'),
+                        DescripcionRubro = NULLIF(NULLIF(TRIM(@DescripcionRubro),''),'NULL'),
+                        CoopeCreacion = NULLIF(NULLIF(TRIM(@CoopeCreacion),''),'NULL'),
+                        parentesco_pep = NULLIF(NULLIF(TRIM(@parentesco_pep),''),'NULL'),
+                        relacion_pep = NULLIF(NULLIF(TRIM(@relacion_pep),''),'NULL'),
+                        codigo_cli_encargado = NULLIF(NULLIF(TRIM(@codigo_cli_encargado),''),'NULL'),
+                        ActEconRedep = NULLIF(NULLIF(TRIM(@ActEconRedep),''),'NULL'),
+                        ActEconNego = NULLIF(NULLIF(TRIM(@ActEconNego),''),'NULL'),
+                        Depto_Domi = NULLIF(NULLIF(TRIM(@Depto_Domi),''),'NULL'),
+                        Muni_Domi = NULLIF(NULLIF(TRIM(@Muni_Domi),''),'NULL'),
+                        OTR_ING_ACTPROF = NULLIF(NULLIF(TRIM(@OTR_ING_ACTPROF),''),'NULL'),
+                        OTR_ING_ACTPROF_DES = NULLIF(NULLIF(TRIM(@OTR_ING_ACTPROF_DES),''),'NULL'),
+                        OTR_ING_MANU = NULLIF(NULLIF(TRIM(@OTR_ING_MANU),''),'NULL'),
+                        OTR_ING_MANU_DES = NULLIF(NULLIF(TRIM(@OTR_ING_MANU_DES),''),'NULL'),
+                        OTR_ING_RENTAS = NULLIF(NULLIF(TRIM(@OTR_ING_RENTAS),''),'NULL'),
+                        OTR_ING_RENTAS_DES = NULLIF(NULLIF(TRIM(@OTR_ING_RENTAS_DES),''),'NULL'),
+                        OTR_ING_JUBILA = NULLIF(NULLIF(TRIM(@OTR_ING_JUBILA),''),'NULL'),
+                        OTR_ING_JUBILA_DES = NULLIF(NULLIF(TRIM(@OTR_ING_JUBILA_DES),''),'NULL'),
+                        OTR_ING_OTRFUE = NULLIF(NULLIF(TRIM(@OTR_ING_OTRFUE),''),'NULL'),
+                        OTR_ING_OTRFUE_DES = NULLIF(NULLIF(TRIM(@OTR_ING_OTRFUE_DES),''),'NULL'),
+                        CampoSector = NULLIF(NULLIF(TRIM(@CampoSector),''),'NULL'),
+                        dir_neg_propio = NULLIF(NULLIF(TRIM(@dir_neg_propio),''),'NULL'),
+                        zona_neg_propio = NULLIF(NULLIF(TRIM(@zona_neg_propio),''),'NULL'),
+                        pais_neg_propio = NULLIF(NULLIF(TRIM(@pais_neg_propio),''),'NULL'),
+                        depto_neg_propio = NULLIF(NULLIF(TRIM(@depto_neg_propio),''),'NULL'),
+                        ciudad_neg_propio = NULLIF(NULLIF(TRIM(@ciudad_neg_propio),''),'NULL'),
+                        fecha_expdpi = NULLIF(NULLIF(TRIM(@fecha_expdpi),''),'NULL'),
+                        fecha_emidpi = NULLIF(NULLIF(TRIM(@fecha_emidpi),''),'NULL'),
+                        UsuarioActualizacion = NULLIF(NULLIF(TRIM(@UsuarioActualizacion),''),'NULL'),
+                        CooperativaActualizacion = NULLIF(NULLIF(TRIM(@CooperativaActualizacion),''),'NULL'),
+                        IdRepresentante = NULLIF(NULLIF(TRIM(@IdRepresentante),''),'NULL'),
+                        NombreRepresentante = NULLIF(NULLIF(TRIM(@NombreRepresentante),''),'NULL'),
+                        RelacionRepresentante = NULLIF(NULLIF(TRIM(@RelacionRepresentante),''),'NULL'),
+                        CanalCliente = NULLIF(NULLIF(TRIM(@CanalCliente),''),'NULL'),
+                        nombreArchivoCargado = '{nombreOriginal}',
+                        estatus = 1,
+                        usuarioCreacion = '{usuarioBitacora}',
+                        fechaCreacion = NOW();
+
+                    ALTER TABLE datosClientes ENABLE KEYS;
+                    ";
+
+                    await _db.ExecuteNonQueryAsync(sql);
+
+                    stopwatch.Stop();
+
+                    return Ok(new
+                    {
+                        success = true,
+                        archivo = nombreOriginal,
+                        tipoCarga = "BATCH",
+                        tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
+                        peso = $"{pesoMb} mb",
+                        mensaje = "Carga masiva de clientes ejecutada correctamente"
+                    });
                 }
-
-                // 2️⃣ LIMPIAR CSV
-                Helpers.LimpiarCsvColumnas.Ejecutar(
-                    rutaOriginal: rutaOriginal,
-                    rutaLimpia: rutaLimpia
-                );
-
-                // 3️⃣ USAR CSV LIMPIO
-                string rutaMysql = rutaLimpia.Replace("\\", "/");
-
-                string sql = $@"
-                USE exportablecsv;
-
-                ALTER TABLE datosClientes DISABLE KEYS;
-
-                LOAD DATA INFILE '{rutaMysql}'
-                INTO TABLE datosClientes
-                CHARACTER SET latin1
-                FIELDS TERMINATED BY '|'
-                LINES TERMINATED BY '\n'
-                IGNORE 1 LINES
-                (
-                    @CodigoCliente,@Actualizacion,@Nombre1,@Nombre2,@Nombre3,@Apellido1,@Apellido2,@ApellidoCasada,
-                    @Celular,@Telefono,@Genero,@FechaApertura,@TipoCliente,@FechaNacimiento,@ActividadEconomicaIVE,@AltoRiesgo,
-                    @IdReple,@Dpi,@Pasaporte,@Licencia,@Nit,@Departamento,@Municipio,@Pais,@EstadoCivil,@DeptoNacimiento,
-                    @MuniNacimiento,@PaisNacimiento,@Nacionalidad,@Ocupacion,@Profesion,@CorreoElectronico,@ActividadEconomica,
-                    @Rubro,@SubRubro,@Direccion,@ZonaDomicilio,@PaisDomicilio,@DeptoDomicilio,@MuniDomicilio,@RelacionDependencia,
-                    @NombreRelacionDependencia,@IngresosLaborales,@MonedaIngresoLaboral,@FechaIngresoLaboral,@NegocioPropio,
-                    @NombreNegocio,@FechaInicioNegocio,@IngresosNegocioPropio,@MonedaNegocioPropio,@IngresosRemesas,
-                    @MontoOtrosIngresos,@OtrosIngresos,@MontoIngresos,@MonedaIngresos,@RangoIngresos,@MontoEgresos,@MonedaEgresos,
-                    @RangoEgresos,@ActEconomicaRelacionDependencia,@ActEconomicaNegocio,@Edad,@Cooperativa,@CondicionVivienda,
-                    @Puesto,@DireccionLaboral,@ZonaLaboral,@DeptoLaboral,@MuniLaboral,@TelefonoLaboral,@PersonaPEP,@PersonaCPE,
-                    @Categoria,@DescripcionSubRubro,@DescripcionRubro,@CoopeCreacion,@parentesco_pep,@relacion_pep,
-                    @codigo_cli_encargado,@ActEconRedep,@ActEconNego,@Depto_Domi,@Muni_Domi,
-                    @OTR_ING_ACTPROF,@OTR_ING_ACTPROF_DES,@OTR_ING_MANU,@OTR_ING_MANU_DES,
-                    @OTR_ING_RENTAS,@OTR_ING_RENTAS_DES,@OTR_ING_JUBILA,@OTR_ING_JUBILA_DES,
-                    @OTR_ING_OTRFUE,@OTR_ING_OTRFUE_DES,@CampoSector,@dir_neg_propio,@zona_neg_propio,
-                    @pais_neg_propio,@depto_neg_propio,@ciudad_neg_propio,@fecha_expdpi,@fecha_emidpi,
-                    @UsuarioActualizacion,@CooperativaActualizacion,@IdRepresentante,@NombreRepresentante,
-                    @RelacionRepresentante,@CanalCliente
-                )
-                SET
-                   CodigoCliente = NULLIF(NULLIF(TRIM(@CodigoCliente),''),'NULL'),
-                    Actualizacion = NULLIF(NULLIF(TRIM(@Actualizacion),''),'NULL'),
-                    Nombre1 = NULLIF(NULLIF(TRIM(@Nombre1),''),'NULL'),
-                    Nombre2 = NULLIF(NULLIF(TRIM(@Nombre2),''),'NULL'),
-                    Nombre3 = NULLIF(NULLIF(TRIM(@Nombre3),''),'NULL'),
-                    Apellido1 = NULLIF(NULLIF(TRIM(@Apellido1),''),'NULL'),
-                    Apellido2 = NULLIF(NULLIF(TRIM(@Apellido2),''),'NULL'),
-                    ApellidoCasada = NULLIF(NULLIF(TRIM(@ApellidoCasada),''),'NULL'),
-                    Celular = NULLIF(NULLIF(TRIM(@Celular),''),'NULL'),
-                    Telefono = NULLIF(NULLIF(TRIM(@Telefono),''),'NULL'),
-                    Genero = NULLIF(NULLIF(TRIM(@Genero),''),'NULL'),
-                    FechaApertura = NULLIF(NULLIF(TRIM(@FechaApertura),''),'NULL'),
-                    TipoCliente = NULLIF(NULLIF(TRIM(@TipoCliente),''),'NULL'),
-                    FechaNacimiento = NULLIF(NULLIF(TRIM(@FechaNacimiento),''),'NULL'),
-                    ActividadEconomicaIVE = NULLIF(NULLIF(TRIM(@ActividadEconomicaIVE),''),'NULL'),
-                    AltoRiesgo = NULLIF(NULLIF(TRIM(@AltoRiesgo),''),'NULL'),
-                    IdReple = NULLIF(NULLIF(TRIM(@IdReple),''),'NULL'),
-                    Dpi = NULLIF(NULLIF(TRIM(@Dpi),''),'NULL'),
-                    Pasaporte = NULLIF(NULLIF(TRIM(@Pasaporte),''),'NULL'),
-                    Licencia = NULLIF(NULLIF(TRIM(@Licencia),''),'NULL'),
-                    Nit = NULLIF(NULLIF(TRIM(@Nit),''),'NULL'),
-                    Departamento = NULLIF(NULLIF(TRIM(@Departamento),''),'NULL'),
-                    Municipio = NULLIF(NULLIF(TRIM(@Municipio),''),'NULL'),
-                    Pais = NULLIF(NULLIF(TRIM(@Pais),''),'NULL'),
-                    EstadoCivil = NULLIF(NULLIF(TRIM(@EstadoCivil),''),'NULL'),
-                    DeptoNacimiento = NULLIF(NULLIF(TRIM(@DeptoNacimiento),''),'NULL'),
-                    MuniNacimiento = NULLIF(NULLIF(TRIM(@MuniNacimiento),''),'NULL'),
-                    PaisNacimiento = NULLIF(NULLIF(TRIM(@PaisNacimiento),''),'NULL'),
-                    Nacionalidad = NULLIF(NULLIF(TRIM(@Nacionalidad),''),'NULL'),
-                    Ocupacion = NULLIF(NULLIF(TRIM(@Ocupacion),''),'NULL'),
-                    Profesion = NULLIF(NULLIF(TRIM(@Profesion),''),'NULL'),
-                    CorreoElectronico = NULLIF(NULLIF(TRIM(@CorreoElectronico),''),'NULL'),
-                    ActividadEconomica = NULLIF(NULLIF(TRIM(@ActividadEconomica),''),'NULL'),
-                    Rubro = NULLIF(NULLIF(TRIM(@Rubro),''),'NULL'),
-                    SubRubro = NULLIF(NULLIF(TRIM(@SubRubro),''),'NULL'),
-                    Direccion = NULLIF(NULLIF(TRIM(@Direccion),''),'NULL'),
-                    ZonaDomicilio = NULLIF(NULLIF(TRIM(@ZonaDomicilio),''),'NULL'),
-                    PaisDomicilio = NULLIF(NULLIF(TRIM(@PaisDomicilio),''),'NULL'),
-                    DeptoDomicilio = NULLIF(NULLIF(TRIM(@DeptoDomicilio),''),'NULL'),
-                    MuniDomicilio = NULLIF(NULLIF(TRIM(@MuniDomicilio),''),'NULL'),
-                    RelacionDependencia = NULLIF(NULLIF(TRIM(@RelacionDependencia),''),'NULL'),
-                    NombreRelacionDependencia = NULLIF(NULLIF(TRIM(@NombreRelacionDependencia),''),'NULL'),
-                    IngresosLaborales = NULLIF(NULLIF(TRIM(@IngresosLaborales),''),'NULL'),
-                    MonedaIngresoLaboral = NULLIF(NULLIF(TRIM(@MonedaIngresoLaboral),''),'NULL'),
-                    FechaIngresoLaboral = NULLIF(NULLIF(TRIM(@FechaIngresoLaboral),''),'NULL'),
-                    NegocioPropio = NULLIF(NULLIF(TRIM(@NegocioPropio),''),'NULL'),
-                    NombreNegocio = NULLIF(NULLIF(TRIM(@NombreNegocio),''),'NULL'),
-                    FechaInicioNegocio = NULLIF(NULLIF(TRIM(@FechaInicioNegocio),''),'NULL'),
-                    IngresosNegocioPropio = NULLIF(NULLIF(TRIM(@IngresosNegocioPropio),''),'NULL'),
-                    MonedaNegocioPropio = NULLIF(NULLIF(TRIM(@MonedaNegocioPropio),''),'NULL'),
-                    IngresosRemesas = NULLIF(NULLIF(TRIM(@IngresosRemesas),''),'NULL'),
-                    MontoOtrosIngresos = NULLIF(NULLIF(TRIM(@MontoOtrosIngresos),''),'NULL'),
-                    OtrosIngresos = NULLIF(NULLIF(TRIM(@OtrosIngresos),''),'NULL'),
-                    MontoIngresos = NULLIF(NULLIF(TRIM(@MontoIngresos),''),'NULL'),
-                    MonedaIngresos = NULLIF(NULLIF(TRIM(@MonedaIngresos),''),'NULL'),
-                    RangoIngresos = NULLIF(NULLIF(TRIM(@RangoIngresos),''),'NULL'),
-                    MontoEgresos = NULLIF(NULLIF(TRIM(@MontoEgresos),''),'NULL'),
-                    MonedaEgresos = NULLIF(NULLIF(TRIM(@MonedaEgresos),''),'NULL'),
-                    RangoEgresos = NULLIF(NULLIF(TRIM(@RangoEgresos),''),'NULL'),
-                    ActEconomicaRelacionDependencia = NULLIF(NULLIF(TRIM(@ActEconomicaRelacionDependencia),''),'NULL'),
-                    ActEconomicaNegocio = NULLIF(NULLIF(TRIM(@ActEconomicaNegocio),''),'NULL'),
-                    Edad = NULLIF(NULLIF(TRIM(@Edad),''),'NULL'),
-                    Cooperativa = NULLIF(NULLIF(TRIM(@Cooperativa),''),'NULL'),
-                    CondicionVivienda = NULLIF(NULLIF(TRIM(@CondicionVivienda),''),'NULL'),
-                    Puesto = NULLIF(NULLIF(TRIM(@Puesto),''),'NULL'),
-                    DireccionLaboral = NULLIF(NULLIF(TRIM(@DireccionLaboral),''),'NULL'),
-                    ZonaLaboral = NULLIF(NULLIF(TRIM(@ZonaLaboral),''),'NULL'),
-                    DeptoLaboral = NULLIF(NULLIF(TRIM(@DeptoLaboral),''),'NULL'),
-                    MuniLaboral = NULLIF(NULLIF(TRIM(@MuniLaboral),''),'NULL'),
-                    TelefonoLaboral = NULLIF(NULLIF(TRIM(@TelefonoLaboral),''),'NULL'),
-                    PersonaPEP = NULLIF(NULLIF(TRIM(@PersonaPEP),''),'NULL'),
-                    PersonaCPE = NULLIF(NULLIF(TRIM(@PersonaCPE),''),'NULL'),
-                    Categoria = NULLIF(NULLIF(TRIM(@Categoria),''),'NULL'),
-                    DescripcionSubRubro = NULLIF(NULLIF(TRIM(@DescripcionSubRubro),''),'NULL'),
-                    DescripcionRubro = NULLIF(NULLIF(TRIM(@DescripcionRubro),''),'NULL'),
-                    CoopeCreacion = NULLIF(NULLIF(TRIM(@CoopeCreacion),''),'NULL'),
-                    parentesco_pep = NULLIF(NULLIF(TRIM(@parentesco_pep),''),'NULL'),
-                    relacion_pep = NULLIF(NULLIF(TRIM(@relacion_pep),''),'NULL'),
-                    codigo_cli_encargado = NULLIF(NULLIF(TRIM(@codigo_cli_encargado),''),'NULL'),
-                    ActEconRedep = NULLIF(NULLIF(TRIM(@ActEconRedep),''),'NULL'),
-                    ActEconNego = NULLIF(NULLIF(TRIM(@ActEconNego),''),'NULL'),
-                    Depto_Domi = NULLIF(NULLIF(TRIM(@Depto_Domi),''),'NULL'),
-                    Muni_Domi = NULLIF(NULLIF(TRIM(@Muni_Domi),''),'NULL'),
-                    OTR_ING_ACTPROF = NULLIF(NULLIF(TRIM(@OTR_ING_ACTPROF),''),'NULL'),
-                    OTR_ING_ACTPROF_DES = NULLIF(NULLIF(TRIM(@OTR_ING_ACTPROF_DES),''),'NULL'),
-                    OTR_ING_MANU = NULLIF(NULLIF(TRIM(@OTR_ING_MANU),''),'NULL'),
-                    OTR_ING_MANU_DES = NULLIF(NULLIF(TRIM(@OTR_ING_MANU_DES),''),'NULL'),
-                    OTR_ING_RENTAS = NULLIF(NULLIF(TRIM(@OTR_ING_RENTAS),''),'NULL'),
-                    OTR_ING_RENTAS_DES = NULLIF(NULLIF(TRIM(@OTR_ING_RENTAS_DES),''),'NULL'),
-                    OTR_ING_JUBILA = NULLIF(NULLIF(TRIM(@OTR_ING_JUBILA),''),'NULL'),
-                    OTR_ING_JUBILA_DES = NULLIF(NULLIF(TRIM(@OTR_ING_JUBILA_DES),''),'NULL'),
-                    OTR_ING_OTRFUE = NULLIF(NULLIF(TRIM(@OTR_ING_OTRFUE),''),'NULL'),
-                    OTR_ING_OTRFUE_DES = NULLIF(NULLIF(TRIM(@OTR_ING_OTRFUE_DES),''),'NULL'),
-                    CampoSector = NULLIF(NULLIF(TRIM(@CampoSector),''),'NULL'),
-                    dir_neg_propio = NULLIF(NULLIF(TRIM(@dir_neg_propio),''),'NULL'),
-                    zona_neg_propio = NULLIF(NULLIF(TRIM(@zona_neg_propio),''),'NULL'),
-                    pais_neg_propio = NULLIF(NULLIF(TRIM(@pais_neg_propio),''),'NULL'),
-                    depto_neg_propio = NULLIF(NULLIF(TRIM(@depto_neg_propio),''),'NULL'),
-                    ciudad_neg_propio = NULLIF(NULLIF(TRIM(@ciudad_neg_propio),''),'NULL'),
-                    fecha_expdpi = NULLIF(NULLIF(TRIM(@fecha_expdpi),''),'NULL'),
-                    fecha_emidpi = NULLIF(NULLIF(TRIM(@fecha_emidpi),''),'NULL'),
-                    UsuarioActualizacion = NULLIF(NULLIF(TRIM(@UsuarioActualizacion),''),'NULL'),
-                    CooperativaActualizacion = NULLIF(NULLIF(TRIM(@CooperativaActualizacion),''),'NULL'),
-                    IdRepresentante = NULLIF(NULLIF(TRIM(@IdRepresentante),''),'NULL'),
-                    NombreRepresentante = NULLIF(NULLIF(TRIM(@NombreRepresentante),''),'NULL'),
-                    RelacionRepresentante = NULLIF(NULLIF(TRIM(@RelacionRepresentante),''),'NULL'),
-                    CanalCliente = NULLIF(NULLIF(TRIM(@CanalCliente),''),'NULL'),
-                    nombreArchivoCargado = '{nombreOriginal}',
-                    estatus = 1,
-                    usuarioCreacion = '{usuarioBitacora}',
-                    fechaCreacion = NOW();
-
-                ALTER TABLE datosClientes ENABLE KEYS;
-                ";
-
-                await _db.ExecuteNonQueryAsync(sql);
-
-                stopwatch.Stop();
-
-                return Ok(new
+                catch (Exception ex)
                 {
-                    success = true,
-                    archivo = nombreOriginal,
-                    tipoCarga = "BATCH",
-                    tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
-                    peso = $"{pesoMb} mb",
-                    mensaje = "Carga masiva de clientes ejecutada correctamente"
-                });
+                    stopwatch.Stop();
+
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        error = ex.Message,
+                        detalle = ex.InnerException?.Message
+                    });
+                }
             }
-            catch (Exception ex)
+            else if (_config["TipoConexion"] == "SqlServer")
             {
-                stopwatch.Stop();
-
-                return StatusCode(500, new
+                try
                 {
-                    success = false,
-                    error = ex.Message,
-                    detalle = ex.InnerException?.Message
-                });
+                    string uploadPath = @"C:\cargas_sql";
+                    if (!Directory.Exists(uploadPath))
+                    {
+                        Directory.CreateDirectory(uploadPath);
+                    }
+                    Directory.CreateDirectory(uploadPath);
+
+                    string nombreArchivo = $"{DateTime.Now:yyyy-MM-dd_HHmmss}_DatosClientes.csv";
+                    string rutaOriginal = Path.Combine(uploadPath, nombreArchivo);
+                    string rutaLimpia = Path.Combine(uploadPath, $"LIMPIO_{nombreArchivo}");
+
+                    string nombreOriginal = archivo.FileName;
+
+                    long pesoBytes = archivo.Length;
+                    double pesoMb = Math.Round(pesoBytes / (1024.0 * 1024.0), 2);
+
+                    // 1️⃣ Guardar CSV original
+                    using (var stream = new FileStream(rutaOriginal, FileMode.Create))
+                    {
+                        await archivo.CopyToAsync(stream);
+                    }
+
+                    // 2️⃣ LIMPIAR CSV
+                    Helpers.LimpiarCsvColumnas.Ejecutar(
+                        rutaOriginal: rutaOriginal,
+                        rutaLimpia: rutaLimpia
+                    );
+
+                    var resultadoLimpieza = Helpers.LimpiarCsvColumnasSql.Ejecutar(
+                        rutaOriginal,
+                        rutaLimpia
+                    );
+                    //LimpiarCsvColumnasSql.Ejecutar(
+                    //    @"C:\cargas_sql\2026-01-17_211615_DatosClientes.csv",
+                    //    @"C:\cargas_sql\LIMPIO_2026-01-17_211615_DatosClientes.csv"
+                    //);
+                    string rutaCsvSql = resultadoLimpieza.archivoSalida.Replace("\\", "/");
+
+                    // 2️⃣ PARAMETROS PARA EL SP
+                    DbParameter[] parameters =
+                    {
+                    _db.CreateParameter("@RutaArchivo", rutaLimpia),
+                    _db.CreateParameter("@nombreArchivo", nombreOriginal),
+                    _db.CreateParameter("@NOMBRE_ARCHIVO_ORIGINAL", nombreOriginal),
+                    _db.CreateParameter("@USUARIO_BITACORA", usuarioBitacora)
+
+                };
+
+                    // 3️⃣ EJECUTAR PROCEDIMIENTO
+                    var result = await _db.ExecuteProcedureJsonAsync(
+                        "sp_CargarDatosClientesDesdeCSV",
+                        parameters
+                    );
+
+                    // 4️⃣ VALIDAR RESPUESTA
+                    if (result.Count == 0 || !Convert.ToBoolean(result[0]["success"]))
+                    {
+                        return Ok(new
+                        {
+                            success = true,
+                            archivo = nombreOriginal,
+                            tipoCarga = "BATCH",
+                            tiempoSegundos = Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
+                            peso = $"{pesoMb+10} mb",
+                            mensaje = "Carga masiva de clientes ejecutada correctamente"
+                        });
+                    }
+
+                    // 3️⃣ USAR CSV LIMPIO
+                    //string rutaMysql = rutaLimpia.Replace("\\", "/");
+                    string rutaMysql = rutaLimpia.Replace("\\", "/");
+                    return Ok(_config["TipoConexion"]);
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        error = ex.Message,
+                        detalle = ex.InnerException?.Message
+                    });
+                }
+            }
+
+            else {
+                return Ok("Cadena de conexion no configrada");
             }
         }
 
